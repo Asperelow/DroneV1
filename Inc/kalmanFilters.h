@@ -10,7 +10,7 @@
 
 #include<math.h>
 
-#define g ((float)9.81f)
+#define g ((float)9.81)
 
 typedef struct{
 	float phi_rad;
@@ -27,7 +27,5 @@ void kalman_roll_pitch_update(KalmanRollPitch *kal, float *accel_mps2);
 void matrix_multiply(float *A, float *B, float *C, int rows_A, int cols_A, int cols_B);
 void matrix_transpose(float *input, float *output, int rows, int cols);
 void matrix_inverse_3by3(float *A, float *result);
-
-
 
 #endif /* INC_KALMANFILTERS_H */

@@ -6,7 +6,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2023 STMicroelectronics.
+  * Copyright (c) 2024 STMicroelectronics.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -18,42 +18,60 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "dma.h"
 #include "i2c.h"
 #include "spi.h"
 #include "tim.h"
 #include "gpio.h"
+#include "mpl3115a2.h"
+#include "icm20948.h"
+#include "MadgwickAHRS.h"
+#include "kalmanFilters.h"
+
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "MPU6050.h"
-#include "icm20948.h"
 
-#include "kalmanFilters.h"
+// Not currently being used:	#include "kalmanFilters.h"
 #include "MotorControl.h"
 #include "PID.h"
+
+// Gyro, Accelerometer, and Magnometer
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-#define Calibrate 1
+#define Calibrate 0
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define CONTROLLER_RECEIVE_SIGNAL_MS 100
+
 #define LPF_GYR_ALPHA 0.01f
 #define LPF_ACC_ALPHA 0.10f
 
-#define KALMAN_P_INIT 0.1f
-#define KALMAN_Q 0.001f
-#define KALMAN_R 0.011f
-
-#define KALMAN_PREDICT_PERIOD_MS 10
-#define KALMAN_UPDATE_PERIOD_MS 100
+#define GYRO_PREDICT_RATE_MS 10		// This is not used at the moment - To be used when Kalman is implemented
+#define GYRO_UPDATE_RATE_MS 5
+#define BARO_UPDATE_RATE_MS 100
+#define MOTOR_UPDATE_RATE_MS 50
 
 #define RAD_TO_DEG 57.2957795131f
 
 
+float pressure=0.0;
+float alt=0.0;
+float temperature=0.0;
+
+int32_t timeoutSecond=0;
+int32_t timeoutmiliSecond=0;
+
+#define KALMAN_P_INIT 0.1f
+#define KALMAN_Q 0.001f
+#define KALMAN_R 0.011f
+#define KALMAN_PREDICT_PERIOD_MS 10
+#define KALMAN_UPDATE_PERIOD_MS 100
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -64,7 +82,14 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+float ax, ay, az, gx, gy, gz, mx, my, mz;	// define variables for AHRS
 
+axises my_gyro;
+axises my_accel;
+axises my_mag;
+
+uint32_t prevAHRSUpdateTime = 0;
+quanternion droneQuanternion;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -75,30 +100,66 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
-MPU6050_t MPU6050;
 KalmanRollPitch ekf;
-DroneMotorCommand MotorCommands;
-PIDController RollPID;
-PIDController PitchPID;
-
-// New gyro variables
-axises my_gyro;
-axises my_accel;
-axises my_mag;
-
 float tempKalAccel[3];
 float tempKalVel[3];
 
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{
-	// Check if interrupt pin has been fired
-	if(GPIO_Pin == IMU_INTERRUPT_Pin)
-	{
-		MPU6050.rx = 1;
+int updatePerceptionAlgorithm = 0;	// Perceive block trigger 	- Sensor Inputs
+int updatePlanningAlgorithm = 0;	// Plan block trigger 		- PID Updates
+
+uint32_t flyskyPWMFrequencyCh1, flyskyPWMDutyCycleCh1;
+uint32_t flyskyPWMFrequencyCh2, flyskyPWMDutyCycleCh2;
+uint32_t flyskyPWMFrequencyCh3, flyskyPWMDutyCycleCh3;
+uint32_t flyskyPWMFrequencyCh4, flyskyPWMDutyCycleCh4;
+uint32_t captureValue;
+int prevControllerUpdateTime;
+
+// ################## Controller PWM Interrupt Capture Callback ###############################
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim){
+	/*
+	 * Captures the PWM input on various channels and stores the result as an in from 50:100 for
+	 * the flySky controller. Other PWM signals will likely land outside this range.
+	 */
+	if(htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1){
+		captureValue = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
+		if(captureValue){
+			if(htim9.Channel == HAL_TIM_ACTIVE_CHANNEL_1){
+				flyskyPWMFrequencyCh1 = SystemCoreClock / (captureValue);
+				flyskyPWMDutyCycleCh1 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_2) / 305;
+			} else if(htim3.Channel == HAL_TIM_ACTIVE_CHANNEL_1){
+				flyskyPWMFrequencyCh2 = SystemCoreClock / (captureValue);
+				flyskyPWMDutyCycleCh2 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_2) / 305;
+			} else if(htim4.Channel == HAL_TIM_ACTIVE_CHANNEL_1){
+				flyskyPWMFrequencyCh3 = SystemCoreClock / (captureValue);
+				flyskyPWMDutyCycleCh3 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_2) / 305;
+			} else if(htim5.Channel == HAL_TIM_ACTIVE_CHANNEL_1){
+				flyskyPWMFrequencyCh4 = SystemCoreClock / (captureValue);
+				flyskyPWMDutyCycleCh4 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_2) / 305;
+			}
+		}
 	}
 }
 
+DroneMotorCommand MotorCommands;
+PIDController zPID;
+PIDController RollPID;
+PIDController PitchPID;
+PIDController yawPID;
+
+// #################### Calibrate (if first time using motor) #################################
+#if Calibrate
+	TIM1->CCR1 = MotorCommands.throttleMax;
+	TIM1->CCR2 = MotorCommands.throttleMax;
+	TIM1->CCR3 = MotorCommands.throttleMax;
+	TIM1->CCR4 = MotorCommands.throttleMax;
+	HAL_Delay(2000);
+
+	TIM1->CCR1 = MotorCommands.throttleMin;
+	TIM1->CCR2 = MotorCommands.throttleMin;
+	TIM1->CCR3 = MotorCommands.throttleMin;
+	TIM1->CCR4 = MotorCommands.throttleMin;
+	HAL_Delay(1000);
+#endif
 
 /* USER CODE END 0 */
 
@@ -118,6 +179,13 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+
+  // #################### Start Timers that control Command #####################################
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
+
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -129,16 +197,16 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_TIM2_Init();
-  MX_I2C1_Init();
   MX_TIM3_Init();
+  MX_TIM4_Init();
+  MX_TIM5_Init();
+  MX_TIM9_Init();
   MX_TIM1_Init();
   MX_SPI1_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-  MPU6050_Init(&hi2c1, &MPU6050);
 
-
+  // ############## EKF Initialize ######################################################
   float KalmanQ[2] = {KALMAN_Q, KALMAN_Q};
   float KalmanR[3] = {KALMAN_R, KALMAN_R, KALMAN_R};
 
@@ -148,17 +216,39 @@ int main(void)
   uint32_t timerKalmanPredict = 0;
   uint32_t timerKalmanUpdate = 0;
 
-  // New Gyro
-  uint32_t timerGyroUpdateInterval = 0;
+  // ############## Gyro, Accel & Mag Initialize ########################################
+  icm20948_init();
+  ak09916_init();
+  uint32_t prevGyroUpdateTime = 0;
 
-  uint32_t tim1ch2 = 0;
+  // ############## Init Barometer ######################################################
+  MPL3115A2_Init(&hi2c1); // Initialize MPL3115A2 sensor
+  uint32_t prevBaroUpdateTime = 0;
+  MPL3115A2_DataTypeDef barometerData;
 
-  // Init PID controller for roll and pitch;
+  // ############## Init  Motor Command Parameters ######################################
+  MotorCommands.throttleMin = 200;
+  MotorCommands.throttleMax = 800;
+  MotorCommands.TimARR = 1000;
+
+  // ############### Init z/Roll/Pitch/Yaw PID Parameters ###############################
+  // -------------- PID - z --------------
+  PIDController_Init(&zPID);
+  zPID.T = GYRO_UPDATE_RATE_MS;
+  uint32_t prevzUpdateTime = 0;
+
+  zPID.K_p = 100;
+  zPID.K_i = 0.2;
+  zPID.K_d = 0;
+  zPID.tau = 0;
+
+  zPID.limMin = -100;
+  zPID.limMax = 100;
+
+  // -------------- PID - Roll --------------
   PIDController_Init(&RollPID);
-  PIDController_Init(&PitchPID);
-
-  RollPID.T = KALMAN_UPDATE_PERIOD_MS;
-  PitchPID.T = KALMAN_UPDATE_PERIOD_MS;
+  RollPID.T = GYRO_UPDATE_RATE_MS;
+  uint32_t prevRollUpdateTime = 0;
 
   RollPID.K_p = 100;
   RollPID.K_i = 0.2;
@@ -169,6 +259,11 @@ int main(void)
   RollPID.limMax = 100;
 
 
+  // -------------- PID - Pitch --------------
+  PIDController_Init(&PitchPID);
+  PitchPID.T = GYRO_UPDATE_RATE_MS;
+  uint32_t prevPitchUpdateTime = 0;
+
   PitchPID.K_p = 20;
   PitchPID.K_i = 0;
   PitchPID.K_d = 0;
@@ -177,122 +272,149 @@ int main(void)
   PitchPID.limMin = -1000;
   PitchPID.limMax = 1000;
 
-  // ---------- Motor & ESC Setup ---------------------
-  TIM1->CCR2 = 250; // ARR = 1000
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
+  // -------------- PID - Yaw --------------
+  PIDController_Init(&yawPID);
+  yawPID.T = GYRO_UPDATE_RATE_MS;
+  uint32_t prevYawUpdateTime = 0;
+
+  yawPID.K_p = 100;
+  yawPID.K_i = 0.2;
+  yawPID.K_d = 0;
+  yawPID.tau = 0;
+
+  yawPID.limMin = -100;
+  yawPID.limMax = 100;
 
 
-  /*
-   * This is code for 4 motor control, return to it once one motor is working
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-  //TIM2->CCR1 = 200; // ARR = 1000
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
-  //TIM2->CCR2 = 400; // ARR = 1000
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
-  //TIM2->CCR3 = 600; // ARR = 1000
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
-  //TIM2->CCR4 = 800; // ARR = 1000
-*/
+  // ############### Init quanternion #############################################
+  MadgwickAHRSInit(&droneQuanternion, GYRO_UPDATE_RATE_MS);
 
-  // Move this to an init function in MotorControl
-#if Calibrate
-  TIM1->CCR2 = 1000;
+  // ############## Set Motor Commands to Minimum on startup ############################
+  TIM1->CCR1 = MotorCommands.throttleMin;
+  TIM1->CCR2 = MotorCommands.throttleMin;
+  TIM1->CCR3 = MotorCommands.throttleMin;
+  TIM1->CCR4 = MotorCommands.throttleMin;
   HAL_Delay(3000);
-  TIM1->CCR2 = 500;
-  HAL_Delay(2000);
-  TIM1->CCR2 = 0;
+  uint32_t prevMotorUpdateTime = 0;
 
-  MotorCommands.TimARR = 1000;
-  MotorCommands.sensorMax = 100;
-#endif
+  MotorCommands.TimARR = 1000;	// Define the Auto-Reset Register size
 
-  //New Gyro
-  icm20948_init();
-  ak09916_init();
 
+  float d1, d2, d3, d4;
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	//HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 1);
-	//HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 0);
-
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
 
+	d1 = flyskyPWMDutyCycleCh1;
+	d2 = flyskyPWMDutyCycleCh2;
+	d3 = flyskyPWMDutyCycleCh3;
+	d4 = flyskyPWMDutyCycleCh4;
 
-	//if((HAL_GetTick() - tim1ch2) >= 1000){
-	//	TIM1->CCR2 += 5;
-	//	if(TIM1->CCR2 >= 900){
-	//		TIM1->CCR2 = 50;
-	//	}
-	//	tim1ch2 += 2000;
-	//}
+	// ############################ Sense ############################
+	// -------------- Read Gyro, Accel, and Mag Sensor --------------
+	if((HAL_GetTick() - prevGyroUpdateTime) >= GYRO_UPDATE_RATE_MS){
+        //icm20948_gyro_read(&my_gyro);
+        //icm20948_accel_read(&my_accel);
+        //ak09916_mag_read(&my_mag);
 
-	if((HAL_GetTick() - timerGyroUpdateInterval) >= KALMAN_PREDICT_PERIOD_MS){
-		icm20948_accel_read_g(&my_accel);
-		ak09916_mag_read(&my_mag);
+		float degToRad = 0.1745329;
+        // or unit conversion
+        icm20948_gyro_read_dps(&my_gyro);
+        my_gyro.x = degToRad * my_gyro.x;
+        my_gyro.y = degToRad * my_gyro.y;
+        my_gyro.z = degToRad * my_gyro.z;
 
-		float someAccelX = my_accel.x;
-		float someAccelY = my_accel.y;
+        icm20948_accel_read_g(&my_accel);
+        my_accel.x = 9.81 * my_accel.x;
+        my_accel.y = 9.81 * my_accel.y;
+        my_accel.z = 9.81 * my_accel.z;
 
-		float someMagX = my_mag.x;
-		float someMagY = my_mag.y;
-		float someMagZ = my_mag.z;
+        ak09916_mag_read_uT(&my_mag);
 
-		if (my_accel.y > 0.5){
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, 1);
-		} else{
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, 0);
-		}
+
+		prevGyroUpdateTime = HAL_GetTick();
 	}
-	// Update Gyro and Accelerometer values if IMU receive flag is triggered
-	if(MPU6050.rx == 1){
-		MPU6050_Read_Gyro(&hi2c1, &MPU6050);
-		MPU6050_Read_Accel(&hi2c1, &MPU6050);
-		float phi_rad = ekf.phi_rad;
-		float theta_rad = ekf.theta_rad;
 
-
-		float Drone_X_Pos = MPU6050.Accel[0];
-		/*
-		if (MPU6050.Accel[0] > 0.5){
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, 1);
-		}
-		else{
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, 0);
-		}
-		*/
+	// -------------- Read Barometric Pressure Sensor --------------
+	if((HAL_GetTick() - prevBaroUpdateTime) >= BARO_UPDATE_RATE_MS){
+		barometerData = MPL3115A2_ReadData(&hi2c1);
+		prevBaroUpdateTime = HAL_GetTick();
 	}
+
+	//########################################################################
+	// -------------- For debug purposes, store PWM Input --------------
+	//uint32_t tempVar1, tempVar2, tempVar3, tempVar4;
+
+	//tempVar1 = flyskyPWMDutyCycleCh1;
+	//tempVar2 = flyskyPWMDutyCycleCh2;
+	//tempVar3 = flyskyPWMDutyCycleCh3;
+	//tempVar4 = flyskyPWMDutyCycleCh4;
+
+	// ############################ Perceive ############################
+	// ------- EKF - Extended Kalman Filter  --------------------------
 
 	if((HAL_GetTick() - timerKalmanPredict) >= KALMAN_PREDICT_PERIOD_MS){
-		kalman_roll_pitch_predict(&ekf, &MPU6050.Gyro, 0.001f * KALMAN_PREDICT_PERIOD_MS);
+		kalman_roll_pitch_predict(&ekf, &my_gyro, 0.001f * KALMAN_PREDICT_PERIOD_MS);
+		float tempRoll = ekf.theta_rad;
+		float tempPitch = ekf.phi_rad;
 		timerKalmanPredict += KALMAN_PREDICT_PERIOD_MS;
 	}
-
 	if((HAL_GetTick() - timerKalmanUpdate) >= KALMAN_UPDATE_PERIOD_MS){
-		tempKalAccel[0] = my_accel.x;
-		tempKalAccel[1] = my_accel.y;
-		tempKalAccel[2] = my_accel.z;
-
-		kalman_roll_pitch_update(&ekf, &tempKalAccel);
+		tempKalAccel[0] = -my_accel.x;
+		tempKalAccel[1] = -my_accel.y;
+		tempKalAccel[2] = -my_accel.z;
+		kalman_roll_pitch_update(&ekf, &my_accel);
 		timerKalmanUpdate += KALMAN_UPDATE_PERIOD_MS;
+	}
 
+	// ------- AHRS - Attitude and Header Reference System -------------
+	if((HAL_GetTick() - prevAHRSUpdateTime) >= GYRO_UPDATE_RATE_MS){
+		MadgwickAHRSupdate(my_gyro.x, my_gyro.y, my_gyro.z, my_accel.x, my_accel.y, my_accel.z, my_mag.x, my_mag.y, my_mag.z, &droneQuanternion);
+		float q0 = droneQuanternion.q0;
+		float q1 = droneQuanternion.q1;
+		float q2 = droneQuanternion.q2;
+		float q3 = droneQuanternion.q3;
+		prevAHRSUpdateTime = HAL_GetTick();
+	}
 
-		float DroneRollPosition = ekf.phi_rad; //(ekf.phi_rad * 100);
-		float DronePitchPosition = ekf.theta_rad; //(ekf.theta_rad * 100);
+	// ############################ Plan ############################
+	// Need to add commands to change setpoints given various inputs from user
+	if((HAL_GetTick() - prevzUpdateTime) >= zPID.T){
+		PIDController_Update(&zPID, 0.0f, barometerData.pressure);
+		prevzUpdateTime = HAL_GetTick();
+	}
+	if((HAL_GetTick() - prevRollUpdateTime) >= zPID.T){
+		PIDController_Update(&RollPID, 0.0f, droneQuanternion.q1);
+		prevRollUpdateTime = HAL_GetTick();
+	}
+	if((HAL_GetTick() - prevPitchUpdateTime) >= zPID.T){
+		PIDController_Update(&PitchPID, 0.0f, droneQuanternion.q2);
+		prevPitchUpdateTime = HAL_GetTick();
+	}
+	if((HAL_GetTick() - prevYawUpdateTime) >= zPID.T){
+		PIDController_Update(&yawPID, 0.0f, droneQuanternion.q3);
+		prevYawUpdateTime = HAL_GetTick();
+	}
 
-
-		MotorCommands.Roll = PIDController_Update(&RollPID, 0.0f, DroneRollPosition);
-		float PIDout = MotorCommands.Roll;
-
+	// ############################ Act ############################
+	if((HAL_GetTick() - prevMotorUpdateTime) >= MOTOR_UPDATE_RATE_MS){
 		Update_Duty_Cycles(&MotorCommands);
 
 		TIM1->CCR2 = MotorCommands.M1DutyCycle;
 		int test = MotorCommands.M1DutyCycle;
+	}
+
+	// Debug LED
+	if(ekf.theta_rad > 0){
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, 1);
+	}else{
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, 0);
 	}
 
 
@@ -309,16 +431,18 @@ void SystemClock_Config(void)
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
+  /** Configure the main internal regulator output voltage
+  */
+  __HAL_RCC_PWR_CLK_ENABLE();
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-  RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
+  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -328,12 +452,12 @@ void SystemClock_Config(void)
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
   {
     Error_Handler();
   }

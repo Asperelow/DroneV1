@@ -1,10 +1,9 @@
 /*
- * icm20948.c
- *
- *  Created on: Jan 3, 2024
- *      Author: skyle
- */
-
+* icm20948.c
+*
+*  Created on: Dec 26, 2020
+*      Author: mokhwasomssi
+*/
 
 
 #include "icm20948.h"
@@ -40,9 +39,9 @@ void icm20948_init()
 
 	icm20948_clock_source(1);
 	icm20948_odr_align_enable();
-
+	
 	icm20948_spi_slave_enable();
-
+	
 	icm20948_gyro_low_pass_filter(0);
 	icm20948_accel_low_pass_filter(0);
 
@@ -83,7 +82,7 @@ void icm20948_accel_read(axises* data)
 
 	data->x = (int16_t)(temp[0] << 8 | temp[1]);
 	data->y = (int16_t)(temp[2] << 8 | temp[3]);
-	data->z = (int16_t)(temp[4] << 8 | temp[5]) + accel_scale_factor;
+	data->z = (int16_t)(temp[4] << 8 | temp[5]) + accel_scale_factor; 
 	// Add scale factor because calibraiton function offset gravity acceleration.
 }
 
@@ -136,7 +135,7 @@ bool ak09916_mag_read_uT(axises* data)
 	data->z = (float)(temp.z * 0.15);
 
 	return true;
-}
+}	
 
 
 /* Sub Functions */
@@ -220,7 +219,7 @@ void icm20948_i2c_master_clk_frq(uint8_t config)
 	uint8_t new_val = read_single_icm20948_reg(ub_3, B3_I2C_MST_CTRL);
 	new_val |= config;
 
-	write_single_icm20948_reg(ub_3, B3_I2C_MST_CTRL, new_val);
+	write_single_icm20948_reg(ub_3, B3_I2C_MST_CTRL, new_val);	
 }
 
 void icm20948_clock_source(uint8_t source)
@@ -294,13 +293,13 @@ void icm20948_gyro_calibration()
 	// which are reset to zero upon device startup.
 	// Divide by 4 to get 32.9 LSB per deg/s to conform to expected bias input format.
 	// Biases are additive, so change sign on calculated average gyro biases
-	gyro_offset[0] = (-gyro_bias[0] / 4  >> 8) & 0xFF;
-	gyro_offset[1] = (-gyro_bias[0] / 4)       & 0xFF;
+	gyro_offset[0] = (-gyro_bias[0] / 4  >> 8) & 0xFF; 
+	gyro_offset[1] = (-gyro_bias[0] / 4)       & 0xFF; 
 	gyro_offset[2] = (-gyro_bias[1] / 4  >> 8) & 0xFF;
 	gyro_offset[3] = (-gyro_bias[1] / 4)       & 0xFF;
 	gyro_offset[4] = (-gyro_bias[2] / 4  >> 8) & 0xFF;
 	gyro_offset[5] = (-gyro_bias[2] / 4)       & 0xFF;
-
+	
 	write_multiple_icm20948_reg(ub_2, B2_XG_OFFS_USRH, gyro_offset, 6);
 }
 
@@ -310,7 +309,7 @@ void icm20948_accel_calibration()
 	uint8_t* temp2;
 	uint8_t* temp3;
 	uint8_t* temp4;
-
+	
 	int32_t accel_bias[3] = {0};
 	int32_t accel_bias_reg[3] = {0};
 	uint8_t accel_offset[6] = {0};
@@ -356,7 +355,7 @@ void icm20948_accel_calibration()
 	accel_offset[4] = (accel_bias_reg[2] >> 8) & 0xFF;
 	accel_offset[5] = (accel_bias_reg[2])      & 0xFE;
 	accel_offset[5] = accel_offset[5] | mask_bit[2];
-
+	
 	write_multiple_icm20948_reg(ub_1, B1_XA_OFFS_H, &accel_offset[0], 2);
 	write_multiple_icm20948_reg(ub_1, B1_YA_OFFS_H, &accel_offset[2], 2);
 	write_multiple_icm20948_reg(ub_1, B1_ZA_OFFS_H, &accel_offset[4], 2);
@@ -365,7 +364,7 @@ void icm20948_accel_calibration()
 void icm20948_gyro_full_scale_select(gyro_full_scale full_scale)
 {
 	uint8_t new_val = read_single_icm20948_reg(ub_2, B2_GYRO_CONFIG_1);
-
+	
 	switch(full_scale)
 	{
 		case _250dps :
@@ -392,7 +391,7 @@ void icm20948_gyro_full_scale_select(gyro_full_scale full_scale)
 void icm20948_accel_full_scale_select(accel_full_scale full_scale)
 {
 	uint8_t new_val = read_single_icm20948_reg(ub_2, B2_ACCEL_CONFIG);
-
+	
 	switch(full_scale)
 	{
 		case _2g :
@@ -420,7 +419,7 @@ void icm20948_accel_full_scale_select(accel_full_scale full_scale)
 /* Static Functions */
 static void cs_high()
 {
-	HAL_GPIO_WritePin(ICM20948_SPI_CS_PIN_PORT, ICM20948_SPI_CS_PIN_NUMBER, SET);
+	HAL_GPIO_WritePin(ICM20948_SPI_CS_PIN_PORT, ICM20948_SPI_CS_PIN_NUMBER, SET);	
 }
 
 static void cs_low()
@@ -510,7 +509,7 @@ static void write_single_ak09916_reg(uint8_t reg, uint8_t val)
 }
 
 static uint8_t* read_multiple_ak09916_reg(uint8_t reg, uint8_t len)
-{
+{	
 	write_single_icm20948_reg(ub_3, B3_I2C_SLV0_ADDR, READ | MAG_SLAVE_ADDR);
 	write_single_icm20948_reg(ub_3, B3_I2C_SLV0_REG, reg);
 	write_single_icm20948_reg(ub_3, B3_I2C_SLV0_CTRL, 0x80 | len);

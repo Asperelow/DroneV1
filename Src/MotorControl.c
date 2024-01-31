@@ -14,13 +14,11 @@
  */
 void Motor_Command_Roll(DroneMotorCommand *MotorCommands, float *DroneRollPosition){
 
-	MotorCommands->Roll = (int)((*DroneRollPosition / MotorCommands->sensorMax) * (float)MotorCommands->TimARR/2);
-
-	if(MotorCommands->Roll < 0){
-		MotorCommands->Roll = 0;
+	if(MotorCommands->Roll < MotorCommands->throttleMin){
+		MotorCommands->Roll = MotorCommands->throttleMin;
 	}
-	if(MotorCommands->Roll > 900){
-		MotorCommands->Roll = 900;
+	if(MotorCommands->Roll > MotorCommands->throttleMax){
+		MotorCommands->Roll = MotorCommands->throttleMax;
 	}
 }
 
@@ -29,10 +27,10 @@ void Update_Duty_Cycles(DroneMotorCommand *MotorCommands){
 	int motorMin = 595;
 	int motorMax = 650;
 
-	MotorCommands->M1DutyCycle = motorMin;
-	MotorCommands->M2DutyCycle = motorMin;	//TBD
-	MotorCommands->M3DutyCycle = motorMin;	//TBD
-	MotorCommands->M4DutyCycle = motorMin;	//TBD
+	MotorCommands->M1DutyCycle = MotorCommands->throttleMin;
+	MotorCommands->M2DutyCycle = MotorCommands->throttleMin;
+	MotorCommands->M3DutyCycle = MotorCommands->throttleMin;
+	MotorCommands->M4DutyCycle = MotorCommands->throttleMin;
 
 	// ################ Add Roll Commands ########################
 	if (MotorCommands->Roll > 0){

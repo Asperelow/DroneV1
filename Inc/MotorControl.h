@@ -8,9 +8,12 @@
 #ifndef INC_MOTORCONTROL_H_
 #define INC_MOTORCONTROL_H_
 
-typedef struct{
+typedef struct
+{
 	int TimARR;
-	float sensorMax;
+
+	int throttleMin;
+	int throttleMax;
 
 	float Roll;
 	float Pitch;

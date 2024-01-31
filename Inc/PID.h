@@ -25,6 +25,7 @@ typedef struct
 
 	// Sample time (in seconds)
 	float T;
+	float prevUpdateTime;
 
 	// Controller memory
 	float integrator;
