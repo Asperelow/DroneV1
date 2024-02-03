@@ -18,6 +18,7 @@ typedef struct
 	float Roll;
 	float Pitch;
 	float Yaw;
+	float z;
 
 
 	/* ----------- Drone Anatomy -------------------

@@ -13,17 +13,19 @@ static uint8_t MPL3115A2_ReadReg(I2C_HandleTypeDef *hi2c, uint8_t regAddr) {
 }
 
 void MPL3115A2_Init(I2C_HandleTypeDef *hi2c) {
+
     // Set the sensor to Standby mode
     MPL3115A2_WriteReg(hi2c, MPL3115A2_CTRL_REG1, 0x00);
+    HAL_Delay(10);
     MPL3115A2_WriteReg(hi2c, MPL3115A2_CTRL_REG1, 0x01);
 
+    HAL_Delay(10);
     // Configure the sensor for polling mode (not using INT1 or INT2)
     MPL3115A2_WriteReg(hi2c, MPL3115A2_CTRL_REG1, 0xB8); 	// Example: ALT=1, OST=1, SBYB=1 (active mode)
     MPL3115A2_WriteReg(hi2c, MPL3115A2_DATA_CONFIG, 0x07);
     MPL3115A2_WriteReg(hi2c, MPL3115A2_CTRL_REG1, 0xB9);
+    HAL_Delay(50);
 
-
-    // Further configuration as needed (e.g., setting up over-sampling, etc.)
 }
 
 MPL3115A2_DataTypeDef MPL3115A2_ReadData(I2C_HandleTypeDef *hi2c) {

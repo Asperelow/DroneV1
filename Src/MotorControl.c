@@ -24,13 +24,20 @@ void Motor_Command_Roll(DroneMotorCommand *MotorCommands, float *DroneRollPositi
 
 void Update_Duty_Cycles(DroneMotorCommand *MotorCommands){
 	// Reset motor commands
-	int motorMin = 595;
-	int motorMax = 650;
 
 	MotorCommands->M1DutyCycle = MotorCommands->throttleMin;
 	MotorCommands->M2DutyCycle = MotorCommands->throttleMin;
 	MotorCommands->M3DutyCycle = MotorCommands->throttleMin;
 	MotorCommands->M4DutyCycle = MotorCommands->throttleMin;
+
+	// ################ Add z Commands ########################
+	if (MotorCommands->z > 0){
+		MotorCommands->M1DutyCycle += MotorCommands->z;
+		MotorCommands->M2DutyCycle += MotorCommands->z;
+		MotorCommands->M3DutyCycle += MotorCommands->z;
+		MotorCommands->M4DutyCycle += MotorCommands->z;
+
+	}
 
 	// ################ Add Roll Commands ########################
 	if (MotorCommands->Roll > 0){
@@ -52,27 +59,29 @@ void Update_Duty_Cycles(DroneMotorCommand *MotorCommands){
 		MotorCommands->M4DutyCycle += MotorCommands->Roll;
 	}
 
-	if(MotorCommands->M1DutyCycle > motorMax){
-		MotorCommands->M1DutyCycle = motorMax;
-	} else if (MotorCommands->M1DutyCycle < motorMin){
-		MotorCommands->M1DutyCycle = motorMin;
+
+	// ############### Bound output of each motor #################
+	if(MotorCommands->M1DutyCycle > MotorCommands->throttleMax){
+		MotorCommands->M1DutyCycle = MotorCommands->throttleMax;
+	} else if (MotorCommands->M1DutyCycle < MotorCommands->throttleMin){
+		MotorCommands->M1DutyCycle = MotorCommands->throttleMin;
 	}
 
-	if(MotorCommands->M2DutyCycle > motorMax){
-		MotorCommands->M2DutyCycle = motorMax;
-	} else if (MotorCommands->M2DutyCycle < motorMin){
-		MotorCommands->M2DutyCycle = motorMin;
+	if(MotorCommands->M2DutyCycle > MotorCommands->throttleMax){
+		MotorCommands->M2DutyCycle = MotorCommands->throttleMax;
+	} else if (MotorCommands->M2DutyCycle < MotorCommands->throttleMin){
+		MotorCommands->M2DutyCycle = MotorCommands->throttleMin;
 	}
 
-	if(MotorCommands->M3DutyCycle > motorMax){
-		MotorCommands->M3DutyCycle = motorMax;
-	} else if (MotorCommands->M3DutyCycle < motorMin){
-		MotorCommands->M3DutyCycle = motorMin;
+	if(MotorCommands->M3DutyCycle > MotorCommands->throttleMax){
+		MotorCommands->M3DutyCycle = MotorCommands->throttleMax;
+	} else if (MotorCommands->M3DutyCycle < MotorCommands->throttleMin){
+		MotorCommands->M3DutyCycle = MotorCommands->throttleMin;
 	}
 
-	if(MotorCommands->M4DutyCycle > motorMax){
-		MotorCommands->M4DutyCycle = motorMax;
-	} else if (MotorCommands->M4DutyCycle < motorMin){
-		MotorCommands->M4DutyCycle = motorMin;
+	if(MotorCommands->M4DutyCycle > MotorCommands->throttleMax){
+		MotorCommands->M4DutyCycle = MotorCommands->throttleMax;
+	} else if (MotorCommands->M4DutyCycle < MotorCommands->throttleMin){
+		MotorCommands->M4DutyCycle = MotorCommands->throttleMin;
 	}
 }
